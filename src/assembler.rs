@@ -9,8 +9,6 @@ use std::{
 use lazy_static::lazy_static;
 use regex::Regex;
 
-use crate::cpu::Register;
-
 #[derive(Default)]
 pub struct Program {
     mem: Vec<u32>,
@@ -22,15 +20,18 @@ impl Program {
         let file = File::open(path).map_err(|e| e.to_string())?;
         let reader = BufReader::new(file);
 
+        Self::from_buffer(reader)
+    }
+
+    pub(crate) fn from_buffer<T>(reader: T) -> Result<Self, String>
+    where
+        T: BufRead,
+    {
         let buf = reader
             .lines()
             .map(|l| l.unwrap().trim().to_string())
             .collect::<Vec<_>>();
 
-        Self::from_buffer(&buf)
-    }
-
-    fn from_buffer(buf: &Vec<String>) -> Result<Self, String> {
         let mut mem = Vec::with_capacity(1024);
         let mut inst_name = HashMap::new();
 
@@ -89,11 +90,11 @@ impl Program {
                                 let rs1 = caps.name("rs1").unwrap().as_str();
                                 let rs2 = caps.name("rs2").unwrap().as_str();
 
-                                let rd = Register::parse_name(rd)
+                                let rd = parse_reg_name(rd)
                                     .ok_or(format!("invalid register name: {} in {}", rd, line))?;
-                                let rs1 = Register::parse_name(rs1)
+                                let rs1 = parse_reg_name(rs1)
                                     .ok_or(format!("invalid register name: {} in {}", rs1, line))?;
-                                let rs2 = Register::parse_name(rs2)
+                                let rs2 = parse_reg_name(rs2)
                                     .ok_or(format!("invalid register name: {} in {}", rs2, line))?;
 
                                 opcode | (rd << 7) | (rs1 << 15) | (rs2 << 20)
@@ -103,9 +104,9 @@ impl Program {
                                 let rs1 = caps.name("rs1").unwrap().as_str();
                                 let imm = caps.name("imm").unwrap().as_str();
 
-                                let rd = Register::parse_name(rd)
+                                let rd = parse_reg_name(rd)
                                     .ok_or(format!("invalid register name: {} in {}", rd, line))?;
-                                let rs1 = Register::parse_name(rs1)
+                                let rs1 = parse_reg_name(rs1)
                                     .ok_or(format!("invalid register name: {} in {}", rs1, line))?;
 
                                 let imm = if imm.starts_with("0x") {
@@ -125,9 +126,9 @@ impl Program {
                                 let imm = caps.name("imm").unwrap().as_str();
                                 let rs1 = caps.name("rs1").unwrap().as_str();
 
-                                let rg = Register::parse_name(rg)
+                                let rg = parse_reg_name(rg)
                                     .ok_or(format!("invalid register name: {} in {}", rg, line))?;
-                                let rs1 = Register::parse_name(rs1)
+                                let rs1 = parse_reg_name(rs1)
                                     .ok_or(format!("invalid register name: {} in {}", rs1, line))?;
 
                                 let imm = if imm.starts_with("0x") {
@@ -155,9 +156,9 @@ impl Program {
                                 let rs2 = caps.name("rs2").unwrap().as_str();
                                 let label = caps.name("label").unwrap().as_str();
 
-                                let rs1 = Register::parse_name(rs1)
+                                let rs1 = parse_reg_name(rs1)
                                     .ok_or(format!("invalid register name: {} in {}", rs1, line))?;
-                                let rs2 = Register::parse_name(rs2)
+                                let rs2 = parse_reg_name(rs2)
                                     .ok_or(format!("invalid register name: {} in {}", rs2, line))?;
 
                                 empty_labels.insert(mem_addr, label.to_owned());
@@ -168,7 +169,7 @@ impl Program {
                                 let rd = caps.name("rd").unwrap().as_str();
                                 let label = caps.name("label").unwrap().as_str();
 
-                                let rd = Register::parse_name(rd)
+                                let rd = parse_reg_name(rd)
                                     .ok_or(format!("invalid register name: {} in {}", rd, line))?;
 
                                 empty_labels.insert(mem_addr, label.to_owned());
@@ -179,7 +180,7 @@ impl Program {
                                 let rd = caps.name("rd").unwrap().as_str();
                                 let imm = caps.name("imm").unwrap().as_str();
 
-                                let rd = Register::parse_name(rd)
+                                let rd = parse_reg_name(rd)
                                     .ok_or(format!("invalid register name: {} in {}", rd, line))?;
 
                                 let imm = if imm.starts_with("0x") {
@@ -332,6 +333,84 @@ impl Program {
             println!("{:08x}: {:08x}", addr * 4, data);
         }
     }
+
+    pub fn mem(&self) -> &Vec<u32> {
+        &self.mem
+    }
+
+    pub fn inst_name(&self) -> &HashMap<u32, String> {
+        &self.inst_name
+    }
+}
+
+fn parse_reg_name(name: &str) -> Option<u32> {
+    match name {
+        "zero" => Some(0),
+        "ra" => Some(1),
+        "sp" => Some(2),
+        "gp" => Some(3),
+        "tp" => Some(4),
+        "t0" => Some(5),
+        "t1" => Some(6),
+        "t2" => Some(7),
+        "s0" => Some(8),
+        "s1" => Some(9),
+        "a0" => Some(10),
+        "a1" => Some(11),
+        "a2" => Some(12),
+        "a3" => Some(13),
+        "a4" => Some(14),
+        "a5" => Some(15),
+        "a6" => Some(16),
+        "a7" => Some(17),
+        "s2" => Some(18),
+        "s3" => Some(19),
+        "s4" => Some(20),
+        "s5" => Some(21),
+        "s6" => Some(22),
+        "s7" => Some(23),
+        "s8" => Some(24),
+        "s9" => Some(25),
+        "s10" => Some(26),
+        "s11" => Some(27),
+        "t3" => Some(28),
+        "t4" => Some(29),
+        "t5" => Some(30),
+        "t6" => Some(31),
+        "x0" => Some(0),
+        "x1" => Some(1),
+        "x2" => Some(2),
+        "x3" => Some(3),
+        "x4" => Some(4),
+        "x5" => Some(5),
+        "x6" => Some(6),
+        "x7" => Some(7),
+        "x8" => Some(8),
+        "x9" => Some(9),
+        "x10" => Some(10),
+        "x11" => Some(11),
+        "x12" => Some(12),
+        "x13" => Some(13),
+        "x14" => Some(14),
+        "x15" => Some(15),
+        "x16" => Some(16),
+        "x17" => Some(17),
+        "x18" => Some(18),
+        "x19" => Some(19),
+        "x20" => Some(20),
+        "x21" => Some(21),
+        "x22" => Some(22),
+        "x23" => Some(23),
+        "x24" => Some(24),
+        "x25" => Some(25),
+        "x26" => Some(26),
+        "x27" => Some(27),
+        "x28" => Some(28),
+        "x29" => Some(29),
+        "x30" => Some(30),
+        "x31" => Some(31),
+        _ => None,
+    }
 }
 
 enum AssemblyType {
@@ -417,8 +496,6 @@ lazy_static! {
 
 #[cfg(test)]
 mod tests {
-    use std::vec;
-
     use super::*;
 
     #[test]
@@ -435,12 +512,7 @@ mod tests {
         end:
         "#;
 
-        let buf = test_str
-            .lines()
-            .map(|l| l.trim().to_string())
-            .collect::<Vec<_>>();
-
-        let program = Program::from_buffer(&buf).unwrap();
+        let program = Program::from_buffer(test_str.as_bytes()).unwrap();
 
         assert_eq!(
             program.mem,
@@ -463,12 +535,7 @@ mod tests {
         auipc x0, 0
         "#;
 
-        let buf = test_str
-            .lines()
-            .map(|l| l.trim().to_string())
-            .collect::<Vec<_>>();
-
-        let program = Program::from_buffer(&buf).unwrap();
+        let program = Program::from_buffer(test_str.as_bytes()).unwrap();
 
         assert_eq!(
             program.mem,
@@ -477,11 +544,11 @@ mod tests {
         assert_eq!(
             program.inst_name,
             HashMap::from([
-                (0, "add x0, x0, x0".to_string()),
-                (1, "addi x0, x0, 1".to_string()),
-                (2, "lb x0, 1(x0)".to_string()),
-                (3, "sb x0, 0x21(x0)".to_string()),
-                (4, "auipc x0, 0".to_string()),
+                (0 * 4, "add x0, x0, x0".to_string()),
+                (1 * 4, "addi x0, x0, 1".to_string()),
+                (2 * 4, "lb x0, 1(x0)".to_string()),
+                (3 * 4, "sb x0, 0x21(x0)".to_string()),
+                (4 * 4, "auipc x0, 0".to_string()),
             ])
         );
     }
@@ -499,12 +566,7 @@ mod tests {
         end:
         "#;
 
-        let buf = test_str
-            .lines()
-            .map(|l| l.trim().to_string())
-            .collect::<Vec<_>>();
-
-        let program = Program::from_buffer(&buf).unwrap();
+        let program = Program::from_buffer(test_str.as_bytes()).unwrap();
 
         assert_eq!(
             program.mem,
@@ -513,11 +575,11 @@ mod tests {
         assert_eq!(
             program.inst_name,
             HashMap::from([
-                (0, "add x0, x0, x0".to_string()),
-                (1, "add x0, x0, x0".to_string()),
-                (2, "add x0, x0, x0".to_string()),
-                (3, "beq x0, x0, main".to_string()),
-                (4, "jal x0, end".to_string()),
+                (0 * 4, "add x0, x0, x0".to_string()),
+                (1 * 4, "add x0, x0, x0".to_string()),
+                (2 * 4, "add x0, x0, x0".to_string()),
+                (3 * 4, "beq x0, x0, main".to_string()),
+                (4 * 4, "jal x0, end".to_string()),
             ])
         );
     }
@@ -543,12 +605,7 @@ mod tests {
         end:
         "#;
 
-        let buf = test_str
-            .lines()
-            .map(|l| l.trim().to_string())
-            .collect::<Vec<_>>();
-
-        let program = Program::from_buffer(&buf).unwrap();
+        let program = Program::from_buffer(test_str.as_bytes()).unwrap();
 
         assert_eq!(
             program.mem,

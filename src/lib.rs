@@ -1,6 +1,7 @@
-pub use crate::assembler::Program;
+pub use assembler::Program;
+pub use cpu::CpuState;
+pub use instruction::Instruction;
 
-mod cpu;
-mod utils;
-mod instruction;
 mod assembler;
+mod cpu;
+mod instruction;

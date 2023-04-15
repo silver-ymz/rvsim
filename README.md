@@ -1,12 +1,12 @@
 # RISC-V 5-Stage Simulator
 
 This is a 5-stage RISC-V simulator written in Rust. It is a work in
-progress, and is not yet complete.
+progress, and hasn't yet completed.
 
 ## Support Instructions
 
 1. All RV32I base instruction set, except for `fence`, `ecall`, `ebreak`.
-2. Some RV32M instructions, such as `mul`, `mulh`, `mulhsu`, `mulhu`.
+2. Some RV32M instructions, such as `mul`, `mulh`, `mulhu`.
 
 ## Developing progress
 
