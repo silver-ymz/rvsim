@@ -21,10 +21,3 @@ main:
     addi x7, x6, 1
     addi a0, x0, 17
     ecall
-end:
-
-lw x1, x0, x1d # if | id | ex | me | wb 
-addi x2, x1, 1 #    | if | id | ex | me | wb
-               # shoule nop
-addi x3, x2, 1 #    |    | if | id | ex | me | wb
-addi x4, x3, 1 #    |    |    | if | id | ex | me | wb
