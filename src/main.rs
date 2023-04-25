@@ -1,4 +1,5 @@
 use clap::Parser;
+use lazy_static::lazy_static;
 use rvsim::{CpuState, Program, RunState};
 use std::{
     error::Error,
@@ -16,26 +17,25 @@ struct Args {
     /// Input assembly file
     path: PathBuf,
 
-    /// Turn on to print pipeline info for each cycle
+    /// Print pipeline info for each cycle
     #[arg(short, long)]
     verbose: bool,
 
-    /// Turn on to print analysis info
+    /// Print analysis info
     #[arg(short, long)]
     analysis: bool,
 
+    /// Step running
     #[arg(short, long)]
     step: bool,
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let args = Args::parse();
-    let path = args.path;
-    let verbose = args.verbose;
-    let analysis = args.analysis;
-    let step = args.step;
+lazy_static! {
+    static ref ARGS: Args = Args::parse();
+}
 
-    let program = Program::from_file(&path)?;
+fn main() -> Result<(), Box<dyn Error>> {
+    let program = Program::from_file(&ARGS.path)?;
     let mut app = AppState::new(&program);
     let mut buf = String::new();
 
@@ -50,19 +50,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     })
     .expect("Error setting Ctrl-C handler");
 
-    if verbose && app.cpu.cycle() == 0 {
+    if ARGS.verbose && app.cpu.cycle() == 0 {
         println!("{}", app.cpu);
     }
 
-    if step {
+    if ARGS.step {
         while let Ok(_) = io::stdin().read_line(&mut buf) {
-            app.step(verbose)?;
+            app.step()?;
         }
     } else {
-        app.run(verbose)?;
+        app.run()?;
     }
 
-    if analysis {
+    if ARGS.analysis {
         app.analysis();
     }
 
@@ -81,19 +81,19 @@ impl AppState {
         AppState { cpu }
     }
 
-    fn step(&mut self, verbose: bool) -> Result<(), String> {
+    fn step(&mut self) -> Result<(), String> {
         self.cpu.step()?;
-        if verbose {
+        if ARGS.verbose {
             println!("{}", self.cpu);
         }
 
         Ok(())
     }
 
-    fn run(&mut self, verbose: bool) -> Result<(), String> {
+    fn run(&mut self) -> Result<(), String> {
         loop {
             let state = self.cpu.step()?;
-            if verbose {
+            if ARGS.verbose {
                 println!("{}", self.cpu);
             }
 
