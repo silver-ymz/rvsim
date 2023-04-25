@@ -13,6 +13,7 @@ use regex::Regex;
 pub struct Program {
     mem: Vec<u32>,
     inst_name: HashMap<u32, String>,
+    entry_addr: u32,
 }
 
 impl Program {
@@ -35,25 +36,34 @@ impl Program {
         let mut mem = Vec::with_capacity(1024);
         let mut inst_name = HashMap::new();
 
-        Self::assembly(&buf, &mut mem, &mut inst_name)?;
+        let main_addr = Self::assembly(&buf, &mut mem, &mut inst_name)?;
 
-        Ok(Self { mem, inst_name })
+        Ok(Self {
+            mem,
+            inst_name,
+            entry_addr: main_addr,
+        })
     }
 
     fn assembly(
         buf: &Vec<String>,
         mem: &mut Vec<u32>,
         inst_name: &mut HashMap<u32, String>,
-    ) -> Result<(), String> {
+    ) -> Result<u32, String> {
         let mut symbol: HashMap<String, u32> = HashMap::new();
         let mut empty_labels: HashMap<u32, String> = HashMap::new();
         let mut mem_addr: u32 = 0;
         let mut text_section = false;
         let mut data_section = false;
+        let mut main_label = String::new();
 
         for line in buf {
             if line.starts_with("#") || line.is_empty() {
                 continue;
+            }
+
+            if line.starts_with(".globl") {
+                main_label = line.split_whitespace().nth(1).unwrap().to_owned();
             }
 
             if line.starts_with(".text") {
@@ -109,15 +119,7 @@ impl Program {
                                 let rs1 = parse_reg_name(rs1)
                                     .ok_or(format!("invalid register name: {} in {}", rs1, line))?;
 
-                                let imm = if imm.starts_with("0x") {
-                                    u32::from_str_radix(&imm[2..], 16).map_err(|_| {
-                                        format!("invalid immediate value: {} in {}", imm, line)
-                                    })?
-                                } else {
-                                    imm.parse::<u32>().map_err(|_| {
-                                        format!("invalid immediate value: {} in {}", imm, line)
-                                    })?
-                                };
+                                let imm = parse_imm(imm)?;
 
                                 opcode | (rd << 7) | (rs1 << 15) | (imm << 20)
                             }
@@ -131,15 +133,7 @@ impl Program {
                                 let rs1 = parse_reg_name(rs1)
                                     .ok_or(format!("invalid register name: {} in {}", rs1, line))?;
 
-                                let imm = if imm.starts_with("0x") {
-                                    u32::from_str_radix(&imm[2..], 16).map_err(|_| {
-                                        format!("invalid immediate value: {} in {}", imm, line)
-                                    })?
-                                } else {
-                                    imm.parse::<u32>().map_err(|_| {
-                                        format!("invalid immediate value: {} in {}", imm, line)
-                                    })?
-                                };
+                                let imm = parse_imm(imm)?;
 
                                 if ["sb", "sh", "sw"].contains(&op) {
                                     opcode
@@ -176,6 +170,7 @@ impl Program {
 
                                 opcode | (rd << 7)
                             }
+
                             AssemblyType::RdImm => {
                                 let rd = caps.name("rd").unwrap().as_str();
                                 let imm = caps.name("imm").unwrap().as_str();
@@ -183,18 +178,11 @@ impl Program {
                                 let rd = parse_reg_name(rd)
                                     .ok_or(format!("invalid register name: {} in {}", rd, line))?;
 
-                                let imm = if imm.starts_with("0x") {
-                                    u32::from_str_radix(&imm[2..], 16).map_err(|_| {
-                                        format!("invalid immediate value: {} in {}", imm, line)
-                                    })?
-                                } else {
-                                    imm.parse::<u32>().map_err(|_| {
-                                        format!("invalid immediate value: {} in {}", imm, line)
-                                    })?
-                                };
+                                let imm = parse_imm(imm)?;
 
                                 opcode | (rd << 7) | (imm << 20)
                             }
+                            AssemblyType::OnlyOp => opcode.clone(),
                         };
 
                         mem.push(instruction);
@@ -240,7 +228,7 @@ impl Program {
                             }
                             "word" => {
                                 for word in data.split_ascii_whitespace() {
-                                    mem.push(word.parse::<u32>().unwrap());
+                                    mem.push(parse_imm(word)?);
                                 }
                                 mem_addr += 4 * data.split_whitespace().count() as u32;
                             }
@@ -315,7 +303,10 @@ impl Program {
             mem[addr as usize / 4] = inst;
         }
 
-        Ok(())
+        symbol
+            .get(&main_label)
+            .ok_or("program entry not found".to_string())
+            .copied()
     }
 
     // fixme: solve endian problem
@@ -340,6 +331,10 @@ impl Program {
 
     pub fn inst_name(&self) -> &HashMap<u32, String> {
         &self.inst_name
+    }
+
+    pub fn entry(&self) -> u32 {
+        self.entry_addr
     }
 }
 
@@ -413,6 +408,33 @@ fn parse_reg_name(name: &str) -> Option<u32> {
     }
 }
 
+fn parse_imm(imm: &str) -> Result<u32, String> {
+    if imm.starts_with("-") {
+        let imm = &imm[1..];
+        let num = if imm.starts_with("0x") {
+            u32::from_str_radix(&imm[2..], 16)
+                .map(|x| !x + 1)
+                .map_err(|e| e.to_string())
+        } else if imm.starts_with("0b") {
+            u32::from_str_radix(&imm[2..], 2)
+                .map(|x| !x + 1)
+                .map_err(|e| e.to_string())
+        } else {
+            imm.parse::<u32>()
+                .map(|x| !x + 1)
+                .map_err(|e| e.to_string())
+        };
+        return num;
+    }
+
+    if imm.starts_with("0x") {
+        u32::from_str_radix(&imm[2..], 16).map_err(|e| e.to_string())
+    } else if imm.starts_with("0b") {
+        u32::from_str_radix(&imm[2..], 2).map_err(|e| e.to_string())
+    } else {
+        imm.parse::<u32>().map_err(|e| e.to_string())
+    }
+}
 enum AssemblyType {
     RdRs1Rs2,    // add rd, rs1, rs2
     RdRs1Imm,    // addi rd, rs1, imm
@@ -420,6 +442,7 @@ enum AssemblyType {
     Rs1Rs2Label, // beq rs1, rs2, label
     RdLabel,     // jal rd, label
     RdImm,       // auipc rd, imm
+    OnlyOp,      // ecall and ebreak
 }
 
 lazy_static! {
@@ -436,16 +459,17 @@ lazy_static! {
     static ref INSTRUCTION_REGEX: Vec<(AssemblyType, Regex)> = {
         use AssemblyType::*;
         vec![
-            (RdRs1Rs2, Regex::new(r"(?P<op>\w+)\s+(?P<rd>[a-z][0-9]+),?\s+(?P<rs1>[a-z][0-9]+),?\s+(?P<rs2>[a-z][0-9]+)").unwrap()),
-            (RdRs1Imm, Regex::new(r"(?P<op>\w+)\s+(?P<rd>[a-z][0-9]+),?\s+(?P<rs1>[a-z][0-9]+),?\s+(?P<imm>-?(0x)?[0-9]+)").unwrap()),
-            (RgImmRs1, Regex::new(r"(?P<op>\w+)\s+(?P<rg>[a-z][0-9]+),?\s+(?P<imm>-?(0x)?[0-9]+)\((?P<rs1>[a-z][0-9]+)\)").unwrap()),
-            (Rs1Rs2Label, Regex::new(r"(?P<op>\w+)\s+(?P<rs1>[a-z][0-9]+),?\s+(?P<rs2>[a-z][0-9]+),?\s+(?P<label>[a-z][a-z0-9]+)").unwrap()),
-            (RdLabel, Regex::new(r"(?P<op>\w+)\s+(?P<rd>[a-z][0-9]+),?\s+(?P<label>[a-z][a-z0-9]+)").unwrap()),
-            (RdImm, Regex::new(r"(?P<op>\w+)\s+(?P<rd>[a-z][0-9]+),?\s+(?P<imm>-?(0x)?[0-9]+)").unwrap()),
+            (RdRs1Rs2, Regex::new(r"(?P<op>\w+)\s+(?P<rd>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<rs1>([a-z][0-9]+)|zero|sp|ra|gp|tp),?\s+(?P<rs2>([a-z][0-9]+)|zero|sp|ra|gp|tp)").unwrap()),
+            (RdRs1Imm, Regex::new(r"(?P<op>\w+)\s+(?P<rd>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<rs1>([a-z][0-9]+)|zero|sp|ra|gp|tp),?\s+(?P<imm>-?(0x)?[0-9]+)").unwrap()),
+            (RgImmRs1, Regex::new(r"(?P<op>\w+)\s+(?P<rg>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<imm>-?(0x)?[0-9]+)\((?P<rs1>[a-z][0-9]+|zero|sp|ra|gp|tp)\)").unwrap()),
+            (Rs1Rs2Label, Regex::new(r"(?P<op>\w+)\s+(?P<rs1>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<rs2>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<label>[a-z][a-z_0-9]+)").unwrap()),
+            (RdLabel, Regex::new(r"(?P<op>\w+)\s+(?P<rd>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<label>[a-z][a-z_0-9]+)").unwrap()),
+            (RdImm, Regex::new(r"(?P<op>\w+)\s+(?P<rd>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<imm>-?(0x)?[0-9]+)").unwrap()),
+            (OnlyOp, Regex::new(r"(?P<op>(ecall|ebreak))").unwrap())
         ]
     };
 
-    static ref OPCODE_MAP: HashMap<String, u32> =HashMap::from([
+    static ref OPCODE_MAP: HashMap<String, u32> = HashMap::from([
         ("add".to_string(), 0x00000033),
         ("mul".to_string(), 0x02000033),
         ("sub".to_string(), 0x40000033),
@@ -487,8 +511,8 @@ lazy_static! {
         ("jalr".to_string(), 0x00000067),
         ("lui".to_string(), 0x00000037),
         ("auipc".to_string(), 0x00000017),
-        //("ecall".to_string(), 0x00000073),
-        //("ebreak".to_string(), 0x00100073),
+        ("ecall".to_string(), 0x00000073),
+        ("ebreak".to_string(), 0x00100073),
 
     ]);
 
@@ -501,6 +525,7 @@ mod tests {
     #[test]
     fn test_data() {
         let test_str = r#"
+        .globl end
         .data
         test_str: .string "Hello, world!"
         test_word:
@@ -526,6 +551,7 @@ mod tests {
     #[test]
     fn test_text_without_label() {
         let test_str = r#"
+        .globl main
         .text
         main:
         add x0, x0, x0
@@ -556,6 +582,7 @@ mod tests {
     #[test]
     fn test_text_with_label() {
         let test_str = r#"
+        .globl main
         .text
         add x0, x0, x0
         add x0, x0, x0
@@ -587,6 +614,7 @@ mod tests {
     #[test]
     fn test_all() {
         let test_str = r#"
+        .globl main
         .data
         test_str: .string "Hello, world!"
         test_word:

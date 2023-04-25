@@ -9,6 +9,8 @@ edition = "2021"
 lazy_static = "1.4"
 regex = "1.7"
 clap = { version = "4.2", features = ["derive"] }
+nu-ansi-term = "0.47.0"
+ctrlc = "3.2.5"
 
 [[bin]]
 name = "rvsim-as"

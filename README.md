@@ -5,15 +5,16 @@ progress, and hasn't yet completed.
 
 ## Support Instructions
 
-1. All RV32I base instruction set, except for `fence`, `ecall`, `ebreak`.
+1. All RV32I base instruction set.
 2. Some RV32M instructions, such as `mul`, `mulh`, `mulhu`.
 
 ## Developing progress
 
 - [x] RV32I base instruction set
 - [x] Assembler
-- [ ] 5-stage pipeline
-- [ ] Visualization
+- [x] 5-stage pipeline
+- [x] data hazard and control hazard
+- [x] Visualization
 - [ ] more instructions
 
 ## Building
