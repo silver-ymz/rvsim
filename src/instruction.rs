@@ -185,6 +185,7 @@ impl Instruction {
                 code.into()
             }
             InstType::U => (((self.binary >> 5) & 0x1) * 0xf).into(),
+            InstType::S => 1.into(),
             _ => 0.into(),
         }
     }

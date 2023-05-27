@@ -96,7 +96,7 @@ impl CpuState {
             && self.fmul_station.done()
             && self.wait_insts.is_empty()
         {
-            state = RunState::Exit(0);
+            state = RunState::Exit(self.regs.get(11));
         }
 
         self.cycle += 1;
@@ -152,6 +152,8 @@ impl CpuState {
                 if let Some(val) = self.cdb.get_station(id) {
                     self.regs.set(i, val);
                     self.form.clear(i);
+                } else if let Some(val) = self.cdb.get_reg(i as u8) {
+                    self.regs.set(i, val);
                 }
             }
         }

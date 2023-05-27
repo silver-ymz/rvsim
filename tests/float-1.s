@@ -10,5 +10,5 @@ main:
     fsub.s f0, f1, f2
     fmul.s f0, f1, f2
     fdiv.s f0, f1, f2
-    # addi a0, x0, 17
+    addi a0, x0, 17
     ecall

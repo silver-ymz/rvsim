@@ -73,15 +73,15 @@ impl<T: Station> Station for &mut T {
         source2: Source,
         dest_reg: u8,
     ) -> Option<u8> {
-        (*self).try_send(alu_op, source1, source2, dest_reg)
+        (**self).try_send(alu_op, source1, source2, dest_reg)
     }
 
     fn execute(&mut self, cdb: &mut Cdb) {
-        (*self).execute(cdb)
+        (**self).execute(cdb)
     }
 
     fn done(&self) -> bool {
-        (*self).done()
+        (**self).done()
     }
 }
 

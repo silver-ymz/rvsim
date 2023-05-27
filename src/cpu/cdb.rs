@@ -18,14 +18,13 @@ impl CdbData {
     pub fn new(station_id: u8, num: u8, data: u32) -> Self {
         CdbData {
             station_id,
-            tag: calculate_tag(num),
+            tag: (1 << 7) | num,
             data,
         }
     }
 
-    #[allow(unused)]
     pub fn get_reg(&self, num: u8) -> Option<u32> {
-        if self.tag == calculate_tag(num) {
+        if self.tag == (0b11000000 | num) {
             Some(self.data)
         } else {
             None
@@ -33,7 +32,7 @@ impl CdbData {
     }
 
     pub fn get_station(&self, station_id: u8) -> Option<u32> {
-        if self.station_id == station_id && (self.tag & 0b01100000) == 0b01100000 {
+        if self.station_id == station_id && (self.tag & 0b11000000) == 0b11000000 {
             Some(self.data)
         } else {
             None
@@ -58,8 +57,6 @@ impl CdbData {
 }
 
 impl Cdb {
-    // todo: remove register tag
-    #[allow(unused)]
     pub fn get_reg(&self, num: u8) -> Option<u32> {
         for data in &self.buffer {
             if let Some(data) = data.get_reg(num) {
@@ -122,8 +119,4 @@ impl Display for Cdb {
 
         Ok(())
     }
-}
-
-fn calculate_tag(num: u8) -> u8 {
-    (1 << 7) | num
 }
