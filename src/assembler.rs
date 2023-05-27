@@ -453,7 +453,7 @@ lazy_static! {
         Regex::new(r"\.(?P<type>word)\s+(?P<data>[\s0-9]*)").unwrap(),      // .word
         Regex::new(r"\.(?P<type>byte)\s+(?P<data>[\s0-9]*)").unwrap(),      // .byte
         Regex::new(r"\.(?P<type>half)\s+(?P<data>[\s0-9]*)").unwrap(),      // .half
-        // Regex::new(r#"\.(?P<type>float)\s+(?P<data>[\s0-9]*)"#).unwrap(),   // .float
+        Regex::new(r"\.(?P<type>float)\s+(?P<data>[\s0-9]*)").unwrap(),     // .float
     ];
 
     static ref INSTRUCTION_REGEX: Vec<(AssemblyType, Regex)> = {

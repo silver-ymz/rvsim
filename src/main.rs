@@ -75,7 +75,7 @@ struct AppState {
 
 impl AppState {
     fn new(program: &Program) -> Self {
-        let mut cpu = CpuState::default();
+        let mut cpu = CpuState::new();
         cpu.load(&program);
 
         AppState { cpu }
@@ -123,11 +123,5 @@ impl AppState {
     fn analysis(&self) {
         println!("========== Analysis ==========");
         println!("All Cycle: {}", self.cpu.cycle() - 1);
-        println!("Data Hazard: {}", self.cpu.data_hazard());
-        println!("Control Hazard: {}", self.cpu.control_hazard());
-        println!(
-            "Stall Cycle: {}",
-            self.cpu.data_hazard() + self.cpu.control_hazard()
-        );
     }
 }

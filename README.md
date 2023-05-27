@@ -2,6 +2,9 @@
 
 This is a 5-stage pipeline RISC-V simulator written in Rust.
 
+> This is an out-of-order implementation based on tomasulo alogorithm.
+> **It hasn't completed now.** The 5-stage pipeline implementation is on `master` branch.
+
 ## Support Instructions
 
 1. All RV32I base instruction set.
@@ -15,6 +18,7 @@ This is a 5-stage pipeline RISC-V simulator written in Rust.
 - [x] data hazard and control hazard
 - [x] Visualization
 - [x] more instructions
+- [ ] F extension
 
 ## Building
 

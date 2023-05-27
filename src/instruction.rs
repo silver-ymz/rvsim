@@ -8,10 +8,9 @@ pub struct Instruction {
     rs2: u32,
     rd: u32,
     imm: u32,
-    reg_write: bool,
 }
 
-#[derive(Clone, PartialEq, Debug, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InstType {
     R,
     I,
@@ -21,7 +20,7 @@ enum InstType {
     J,
 }
 
-#[derive(Clone, PartialEq, Debug, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AluType {
     Add = 0,
     Sll = 1,
@@ -39,7 +38,7 @@ pub(crate) enum AluType {
     Bsel = 15,
 }
 
-#[derive(Clone, PartialEq, Debug, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WBType {
     Mem,
     Alu,
@@ -47,11 +46,20 @@ pub(crate) enum WBType {
     None,
 }
 
-#[derive(Clone, PartialEq, Debug, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MemType {
     Load,
     Store,
     None,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StationType {
+    None,
+    LoadStore,
+    Integer,
+    FAdd,
+    FMul,
 }
 
 impl Instruction {
@@ -61,9 +69,9 @@ impl Instruction {
 
     pub fn from_binary(binary: u32) -> Result<Self, String> {
         let inst_type = match binary & 0x7f {
-            0x33 => InstType::R,
-            0x03 | 0x13 | 0x67 | 0x73 => InstType::I,
-            0x23 => InstType::S,
+            0x33 | 0x53 => InstType::R,
+            0x03 | 0x07 | 0x13 | 0x67 | 0x73 => InstType::I,
+            0x23 | 0x27 => InstType::S,
             0x63 => InstType::B,
             0x37 | 0x17 => InstType::U,
             0x6f => InstType::J,
@@ -73,10 +81,6 @@ impl Instruction {
         let rs1 = (binary >> 15) & 0x1f;
         let rs2 = (binary >> 20) & 0x1f;
         let rd = (binary >> 7) & 0x1f;
-        let reg_write = matches!(
-            inst_type,
-            InstType::R | InstType::I | InstType::U | InstType::J
-        ) && rd != 0;
 
         let imm = match inst_type {
             InstType::I => sign_extend(binary >> 20, 12),
@@ -106,7 +110,6 @@ impl Instruction {
             rs2,
             rd,
             imm,
-            reg_write,
         })
     }
 
@@ -217,7 +220,10 @@ impl Instruction {
     }
 
     pub fn reg_write(&self) -> bool {
-        self.reg_write
+        matches!(
+            self.inst_type,
+            InstType::R | InstType::I | InstType::U | InstType::J
+        ) && self.rd != 0
     }
 
     pub fn is_load(&self) -> bool {
@@ -236,32 +242,71 @@ impl Instruction {
         self.binary == 0x73
     }
 
+    pub fn is_float_point(&self) -> bool {
+        self.binary & 0x7f == 0x07 || self.binary & 0x7f == 0x27 || self.binary & 0x7f == 0x53
+    }
+
+    // only distinguish loadstore, interger, float-add, float-mul now
+    pub(crate) fn station(&self) -> StationType {
+        match self.inst_type {
+            InstType::I => {
+                if (self.binary & 0x7f) == 0x03 || (self.binary & 0x7f) == 0x07 {
+                    StationType::LoadStore
+                } else {
+                    StationType::Integer
+                }
+            }
+            InstType::S => StationType::LoadStore,
+            InstType::R => {
+                if (self.binary & 0x7f) == 0x53 {
+                    if (self.binary >> 12) & 0x7 == 0 || (self.binary >> 12) & 0x7 == 4 {
+                        StationType::FAdd
+                    } else if (self.binary >> 12) & 0x7 == 8 || (self.binary >> 12) & 0x7 == 0xc {
+                        StationType::FMul
+                    } else {
+                        panic!("unknown float inst: {:x}", self.binary)
+                    }
+                } else {
+                    StationType::Integer
+                }
+            }
+            InstType::U => StationType::Integer,
+            InstType::J => StationType::Integer,
+            _ => StationType::None,
+        }
+    }
+
     // todo: print more user friendly info
     pub fn debug(&self) -> String {
         // disassemble
         let inst = match self.inst_type {
             InstType::R => {
+                let opcode = self.binary & 0x7f;
                 let func3 = (self.binary >> 12) & 0x7;
                 let func7 = (self.binary >> 25) & 0x7f;
-                match (func3, func7) {
-                    (0, 0) => format!("add x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
-                    (0, 0x20) => format!("sub x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
-                    (1, 0) => format!("sll x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
-                    (2, 0) => format!("slt x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
-                    (3, 0) => format!("sltu x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
-                    (4, 0) => format!("xor x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
-                    (5, 0) => format!("srl x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
-                    (5, 0x20) => format!("sra x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
-                    (6, 0) => format!("or x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
-                    (7, 0) => format!("and x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
-                    (0, 1) => format!("mul x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
-                    (1, 1) => format!("mulh x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
-                    (2, 1) => format!("mulhsu x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
-                    (3, 1) => format!("mulhu x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
-                    (4, 1) => format!("div x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
-                    (5, 1) => format!("divu x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
-                    (6, 1) => format!("rem x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
-                    (7, 1) => format!("remu x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                match (opcode, func3, func7) {
+                    (0x33, 0, 0) => format!("add x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x33, 0, 0x20) => format!("sub x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x33, 1, 0) => format!("sll x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x33, 2, 0) => format!("slt x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x33, 3, 0) => format!("sltu x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x33, 4, 0) => format!("xor x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x33, 5, 0) => format!("srl x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x33, 5, 0x20) => format!("sra x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x33, 6, 0) => format!("or x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x33, 7, 0) => format!("and x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x33, 0, 1) => format!("mul x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x33, 1, 1) => format!("mulh x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x33, 2, 1) => format!("mulhsu x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x33, 3, 1) => format!("mulhu x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x33, 4, 1) => format!("div x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x33, 5, 1) => format!("divu x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x33, 6, 1) => format!("rem x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x33, 7, 1) => format!("remu x{}, x{}, x{}", self.rd, self.rs1, self.rs2),
+                    (0x53, _, 0) => format!("fadd.s f{}, f{}, f{}", self.rd, self.rs1, self.rs2),
+                    (0x53, _, 0x04) => format!("fsub.s f{}, f{}, f{}", self.rd, self.rs1, self.rs2),
+                    (0x53, _, 0x08) => format!("fmul.s f{}, f{}, f{}", self.rd, self.rs1, self.rs2),
+                    (0x53, _, 0x0c) => format!("fdiv.s f{}, f{}, f{}", self.rd, self.rs1, self.rs2),
                     _ => format!("unknown"),
                 }
             }
@@ -277,23 +322,26 @@ impl Instruction {
                     (0x13, 5) => format!("srli x{}, x{}, {}", self.rd, self.rs1, self.imm),
                     (0x13, 6) => format!("ori x{}, x{}, {}", self.rd, self.rs1, self.imm),
                     (0x13, 7) => format!("andi x{}, x{}, {}", self.rd, self.rs1, self.imm),
-                    (0x3, 0) => format!("lb x{}, {}(x{})", self.rd, self.imm, self.rs1),
-                    (0x3, 1) => format!("lh x{}, {}(x{})", self.rd, self.imm, self.rs1),
-                    (0x3, 2) => format!("lw x{}, {}(x{})", self.rd, self.imm, self.rs1),
-                    (0x3, 4) => format!("lbu x{}, {}(x{})", self.rd, self.imm, self.rs1),
-                    (0x3, 5) => format!("lhu x{}, {}(x{})", self.rd, self.imm, self.rs1),
+                    (0x03, 0) => format!("lb x{}, {}(x{})", self.rd, self.imm, self.rs1),
+                    (0x03, 1) => format!("lh x{}, {}(x{})", self.rd, self.imm, self.rs1),
+                    (0x03, 2) => format!("lw x{}, {}(x{})", self.rd, self.imm, self.rs1),
+                    (0x03, 4) => format!("lbu x{}, {}(x{})", self.rd, self.imm, self.rs1),
+                    (0x03, 5) => format!("lhu x{}, {}(x{})", self.rd, self.imm, self.rs1),
                     (0x67, 0) => format!("jalr x{}, {}(x{})", self.rd, self.imm, self.rs1),
                     (0x73, 0) => format!("ecall"),
                     (0x73, 1) => format!("ebreak"),
+                    (0x07, 2) => format!("flw f{}, {}(x{})", self.rd, self.imm, self.rs1),
                     _ => format!("unknown"),
                 }
             }
             InstType::S => {
+                let opcode = self.binary & 0x7f;
                 let func3 = (self.binary >> 12) & 0x7;
-                match func3 {
-                    0 => format!("sb x{}, {}(x{})", self.rs2, self.imm, self.rs1),
-                    1 => format!("sh x{}, {}(x{})", self.rs2, self.imm, self.rs1),
-                    2 => format!("sw x{}, {}(x{})", self.rs2, self.imm, self.rs1),
+                match (opcode, func3) {
+                    (0x23, 0) => format!("sb x{}, {}(x{})", self.rs2, self.imm, self.rs1),
+                    (0x23, 1) => format!("sh x{}, {}(x{})", self.rs2, self.imm, self.rs1),
+                    (0x23, 2) => format!("sw x{}, {}(x{})", self.rs2, self.imm, self.rs1),
+                    (0x27, 2) => format!("fsw f{}, {}(x{})", self.rs2, self.imm, self.rs1),
                     _ => format!("unknown"),
                 }
             }
@@ -505,6 +553,18 @@ mod tests {
         assert_eq!(inst.write_back(), WBType::Pc);
         assert_eq!(inst.branch(0, 0), true);
         assert_eq!(inst.reg_write(), false);
+
+        let inst = Instruction::from_binary(0x003100d3).unwrap(); // fadd.s f1, f2, f3
+        assert_eq!(inst.binary, 0x003100d3);
+        assert_eq!(inst.inst_type, InstType::R);
+        assert_eq!(inst.is_jump(), false);
+        assert_eq!(inst.rs1(), 2);
+        assert_eq!(inst.rs2(), 3);
+        assert_eq!(inst.rd(), 1);
+        assert_eq!(inst.imm(), 0);
+        assert_eq!(inst.alu_use_reg1(), true);
+        assert_eq!(inst.alu_use_reg2(), true);
+        assert_eq!(inst.is_float_point(), true);
 
         assert!(Instruction::from_binary(0x00000000).is_err()); // invalid instruction
     }
