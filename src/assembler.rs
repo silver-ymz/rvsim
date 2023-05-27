@@ -272,6 +272,12 @@ impl Program {
                                 }
                                 mem_addr += (size * 2) as u32;
                             }
+                            "float" => {
+                                for word in data.split_ascii_whitespace() {
+                                    mem.push(word.parse::<f32>().unwrap().to_bits());
+                                }
+                                mem_addr += 4 * data.split_whitespace().count() as u32;
+                            }
                             _ => {
                                 return Err(format!("unknown data type: {}", data_type));
                             }
@@ -404,6 +410,38 @@ fn parse_reg_name(name: &str) -> Option<u32> {
         "x29" => Some(29),
         "x30" => Some(30),
         "x31" => Some(31),
+        "f0" => Some(0),
+        "f1" => Some(1),
+        "f2" => Some(2),
+        "f3" => Some(3),
+        "f4" => Some(4),
+        "f5" => Some(5),
+        "f6" => Some(6),
+        "f7" => Some(7),
+        "f8" => Some(8),
+        "f9" => Some(9),
+        "f10" => Some(10),
+        "f11" => Some(11),
+        "f12" => Some(12),
+        "f13" => Some(13),
+        "f14" => Some(14),
+        "f15" => Some(15),
+        "f16" => Some(16),
+        "f17" => Some(17),
+        "f18" => Some(18),
+        "f19" => Some(19),
+        "f20" => Some(20),
+        "f21" => Some(21),
+        "f22" => Some(22),
+        "f23" => Some(23),
+        "f24" => Some(24),
+        "f25" => Some(25),
+        "f26" => Some(26),
+        "f27" => Some(27),
+        "f28" => Some(28),
+        "f29" => Some(29),
+        "f30" => Some(30),
+        "f31" => Some(31),
         _ => None,
     }
 }
@@ -450,21 +488,21 @@ lazy_static! {
 
     static ref DATA_REGEX: Vec<Regex> = vec![
         Regex::new(r#"\.(?P<type>string)\s+"(?P<data>.*)""#).unwrap(),      // .string
-        Regex::new(r"\.(?P<type>word)\s+(?P<data>[\s0-9]*)").unwrap(),      // .word
-        Regex::new(r"\.(?P<type>byte)\s+(?P<data>[\s0-9]*)").unwrap(),      // .byte
-        Regex::new(r"\.(?P<type>half)\s+(?P<data>[\s0-9]*)").unwrap(),      // .half
-        Regex::new(r"\.(?P<type>float)\s+(?P<data>[\s0-9]*)").unwrap(),     // .float
+        Regex::new(r"\.(?P<type>word)\s+(?P<data>[0-9]+)").unwrap(),      // .word
+        Regex::new(r"\.(?P<type>byte)\s+(?P<data>[0-9]+)").unwrap(),      // .byte
+        Regex::new(r"\.(?P<type>half)\s+(?P<data>[0-9]+)").unwrap(),      // .half
+        Regex::new(r"\.(?P<type>float)\s+(?P<data>[0-9]+(\.[0-9]+)?)").unwrap(),     // .float
     ];
 
     static ref INSTRUCTION_REGEX: Vec<(AssemblyType, Regex)> = {
         use AssemblyType::*;
         vec![
-            (RdRs1Rs2, Regex::new(r"(?P<op>\w+)\s+(?P<rd>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<rs1>([a-z][0-9]+)|zero|sp|ra|gp|tp),?\s+(?P<rs2>([a-z][0-9]+)|zero|sp|ra|gp|tp)").unwrap()),
-            (RdRs1Imm, Regex::new(r"(?P<op>\w+)\s+(?P<rd>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<rs1>([a-z][0-9]+)|zero|sp|ra|gp|tp),?\s+(?P<imm>-?(0x)?[0-9]+)").unwrap()),
-            (RgImmRs1, Regex::new(r"(?P<op>\w+)\s+(?P<rg>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<imm>-?(0x)?[0-9]+)\((?P<rs1>[a-z][0-9]+|zero|sp|ra|gp|tp)\)").unwrap()),
-            (Rs1Rs2Label, Regex::new(r"(?P<op>\w+)\s+(?P<rs1>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<rs2>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<label>[a-z][a-z_0-9]+)").unwrap()),
-            (RdLabel, Regex::new(r"(?P<op>\w+)\s+(?P<rd>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<label>[a-z][a-z_0-9]+)").unwrap()),
-            (RdImm, Regex::new(r"(?P<op>\w+)\s+(?P<rd>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<imm>-?(0x)?[0-9]+)").unwrap()),
+            (RdRs1Rs2, Regex::new(r"(?P<op>[a-z\.]+)\s+(?P<rd>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<rs1>([a-z][0-9]+)|zero|sp|ra|gp|tp),?\s+(?P<rs2>([a-z][0-9]+)|zero|sp|ra|gp|tp)").unwrap()),
+            (RdRs1Imm, Regex::new(r"(?P<op>[a-z\.]+)\s+(?P<rd>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<rs1>([a-z][0-9]+)|zero|sp|ra|gp|tp),?\s+(?P<imm>-?(0x)?[0-9]+)").unwrap()),
+            (RgImmRs1, Regex::new(r"(?P<op>[a-z\.]+)\s+(?P<rg>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<imm>-?(0x)?[0-9]+)\((?P<rs1>[a-z][0-9]+|zero|sp|ra|gp|tp)\)").unwrap()),
+            (Rs1Rs2Label, Regex::new(r"(?P<op>[a-z\.]+)\s+(?P<rs1>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<rs2>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<label>[a-z][a-z_0-9]+)").unwrap()),
+            (RdLabel, Regex::new(r"(?P<op>[a-z\.]+)\s+(?P<rd>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<label>[a-z][a-z_0-9]+)").unwrap()),
+            (RdImm, Regex::new(r"(?P<op>[a-z\.]+)\s+(?P<rd>[a-z][0-9]+|zero|sp|ra|gp|tp),?\s+(?P<imm>-?(0x)?[0-9]+)").unwrap()),
             (OnlyOp, Regex::new(r"(?P<op>(ecall|ebreak))").unwrap())
         ]
     };
@@ -514,6 +552,12 @@ lazy_static! {
         ("ecall".to_string(), 0x00000073),
         ("ebreak".to_string(), 0x00100073),
 
+        ("flw".to_string(), 0x00002007),
+        ("fsw".to_string(), 0x000020a7),
+        ("fadd.s".to_string(), 0x00000053),
+        ("fsub.s".to_string(), 0x08000053),
+        ("fmul.s".to_string(), 0x10000053),
+        ("fdiv.s".to_string(), 0x18000053),
     ]);
 
 }

@@ -50,6 +50,7 @@ pub struct AppointForm {
     map: [u8; 64],
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum RunState {
     Running,
     Exit(u32),
@@ -78,11 +79,25 @@ impl CpuState {
     }
 
     pub fn step(&mut self) -> Result<RunState, String> {
-        self.pc += 4;
+        let mut state = RunState::Running;
 
         self.write_back();
         self.execute();
-        let state = self.issue()?;
+
+        if !self.exit {
+            state = self.issue()?;
+            self.pc += 4;
+        }
+
+        if self.exit
+            && self.ld_station.done()
+            && self.integer_station.done()
+            && self.fadd_station.done()
+            && self.fmul_station.done()
+            && self.wait_insts.is_empty()
+        {
+            state = RunState::Exit(0);
+        }
 
         self.cycle += 1;
 
@@ -96,7 +111,8 @@ impl CpuState {
     pub fn issue(&mut self) -> Result<RunState, String> {
         let inst = Instruction::from_binary(self.mem.load(self.pc))?;
         if inst.station() == StationType::None {
-            return Ok(RunState::Exit(0))
+            self.exit = true;
+            return Ok(RunState::Running);
         }
 
         self.wait_insts.push_back(inst);
@@ -109,10 +125,10 @@ impl CpuState {
                 StationType::Integer => Box::new(&mut self.integer_station),
                 StationType::FAdd => Box::new(&mut self.fadd_station),
                 StationType::FMul => Box::new(&mut self.fmul_station),
-                _ => unimplemented!()
+                _ => unimplemented!(),
             };
 
-            match station.try_send_inst(inst.clone(), &self.form, &self.regs) {
+            match station.try_send_inst(inst.clone(), &mut self.form, &self.regs, self.pc) {
                 Some(id) => self.form.set(inst.rd(), id),
                 None => self.wait_insts.push_back(inst),
             }
@@ -160,26 +176,28 @@ impl Display for CpuState {
             Blue.paint(format!("Cycle {}", self.cycle))
         )?;
         writeln!(f, "-- cpu state")?;
-        // writeln!(
-        //     f,
-        //     "pc: {:08x}, npc: {:08x}, stall: {}, inst: {}, next_pipein_inst: {}",
-        //     self.pc,
-        //     self.npc,
-        //     self.stall,
-        //     Blue.paint(self.inst_name.get(&self.pc).unwrap_or(&"???".to_owned())),
-        //     Blue.paint(self.inst_name.get(&self.npc).unwrap_or(&"???".to_owned()))
-        // )?;
-        // write!(f, "{}", self.regs)?;
-        // writeln!(f, "-- IF/ID")?;
-        // write!(f, "{}", self.if_id)?;
-        // writeln!(f, "-- ID/EX")?;
-        // write!(f, "{}", self.id_ex)?;
-        // writeln!(f, "-- EX/MEM")?;
-        // write!(f, "{}", self.ex_mem)?;
-        // writeln!(f, "-- MEM/WB")?;
-        // write!(f, "{}", self.mem_wb)?;
+        writeln!(f, "pc: {}", self.pc)?;
+        writeln!(f, "-- registers")?;
+        write!(f, "{}", self.regs)?;
+        //writeln!(f, "mem: {:?}", self.mem)?;
+        writeln!(f, "-- station state")?;
+        write!(f, "load-store station: {}", self.ld_station)?;
+        write!(f, "integer station: {}", self.integer_station)?;
+        write!(f, "fadd station: {}", self.fadd_station)?;
+        write!(f, "fmul station: {}", self.fmul_station)?;
+        write!(f, "cdb: {}", self.cdb)?;
+        writeln!(f, "-- appoint form")?;
+        writeln!(f, "{}", self.form)?;
+        writeln!(f, "-- wait inst")?;
 
-        todo!();
+        let mut empty = true;
+        for inst in self.wait_insts.iter() {
+            writeln!(f, "{}", inst)?;
+            empty = false;
+        }
+        if empty {
+            writeln!(f, "empty")?;
+        }
 
         Ok(())
     }
@@ -270,15 +288,42 @@ impl Display for Register {
             }
             writeln!(f, "")?;
         }
-        writeln!(f, "")?;
+        //writeln!(f, "")?;
+        for i in 0..8 {
+            for j in 0..4 {
+                let index = i * 4 + j;
+                write!(
+                    f,
+                    "{:>3}: {:08x}({:.4}), ",
+                    format!("f{}", index),
+                    self.regs[32 + index],
+                    f32::from_bits(self.regs[32 + index])
+                )?;
+            }
+            writeln!(f, "")?;
+        }
+        Ok(())
+    }
+}
+
+impl Display for AppointForm {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for i in 0..4 {
+            for j in 0..8 {
+                let index = i * 8 + j;
+                write!(f, "{:>3}: {:02}, ", format!("x{}", index), self.map[index])?;
+            }
+            writeln!(f, "")?;
+        }
+        //writeln!(f, "")?;
         for i in 0..4 {
             for j in 0..8 {
                 let index = i * 8 + j;
                 write!(
                     f,
-                    "{:>3}: {:08}, ",
+                    "{:>3}: {:02}, ",
                     format!("f{}", index),
-                    self.regs[32 + index]
+                    self.map[32 + index]
                 )?;
             }
             writeln!(f, "")?;

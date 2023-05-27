@@ -37,7 +37,6 @@ lazy_static! {
 fn main() -> Result<(), Box<dyn Error>> {
     let program = Program::from_file(&ARGS.path)?;
     let mut app = AppState::new(&program);
-    let mut buf = String::new();
 
     let quit = Arc::new(AtomicBool::new(false));
     ctrlc::set_handler(move || {
@@ -55,9 +54,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if ARGS.step {
-        while let Ok(_) = io::stdin().read_line(&mut buf) {
-            app.step()?;
-        }
+        app.step()?;
     } else {
         app.run()?;
     }
@@ -82,9 +79,28 @@ impl AppState {
     }
 
     fn step(&mut self) -> Result<(), String> {
-        self.cpu.step()?;
-        if ARGS.verbose {
-            println!("{}", self.cpu);
+        let mut buf = String::with_capacity(100);
+
+        while let Ok(_) = io::stdin().read_line(&mut buf) {
+            let state = self.cpu.step()?;
+            if ARGS.verbose {
+                println!("{}", self.cpu);
+            }
+
+            match state {
+                RunState::Running => {}
+                RunState::Exit(code) => {
+                    if code == 0 {
+                        println!("Succesfully exit!");
+                    } else {
+                        println!("Exit with code {}!", code);
+                    }
+                    break;
+                }
+                RunState::Break => {
+                    println!("Program break!");
+                }
+            }
         }
 
         Ok(())

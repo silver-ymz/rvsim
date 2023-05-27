@@ -1,3 +1,5 @@
+use std::fmt::{self, Display, Write};
+
 use crate::{instruction::AluType, Instruction};
 
 use super::{utils::is_fp, AppointForm, Cdb, Register, SharedMemory};
@@ -22,25 +24,44 @@ pub trait Station {
 
     fn execute(&mut self, cdb: &mut Cdb);
 
+    fn done(&self) -> bool;
+
     fn try_send_inst(
         &mut self,
         inst: Instruction,
-        form: &AppointForm,
+        form: &mut AppointForm,
         regs: &Register,
+        pc: u32,
     ) -> Option<u8> {
         let rs1 = inst.rs1();
-        let source1 = match form.check(rs1) {
+        let mut source1 = match form.check(rs1) {
             0 => Source::Value(regs.get(rs1)),
             id => Source::Station(id),
         };
 
         let rs2 = inst.rs2();
-        let source2 = match form.check(rs2) {
+        let mut source2 = match form.check(rs2) {
             0 => Source::Value(regs.get(rs2)),
             id => Source::Station(id),
         };
 
-        self.try_send(inst.alu_op() as u8, source1, source2, inst.rd() as u8)
+        let alu_op = inst.alu_op() as u8;
+
+        if !inst.alu_use_reg1() {
+            source1 = Source::Value(pc);
+        }
+
+        if !inst.alu_use_reg2() {
+            source2 = Source::Value(inst.imm());
+        }
+
+        let res = self.try_send(alu_op, source1, source2, inst.rd() as u8);
+
+        if let Some(id) = res {
+            form.set(inst.rd(), id);
+        }
+
+        res
     }
 }
 
@@ -57,6 +78,10 @@ impl<T: Station> Station for &mut T {
 
     fn execute(&mut self, cdb: &mut Cdb) {
         (*self).execute(cdb)
+    }
+
+    fn done(&self) -> bool {
+        (*self).done()
     }
 }
 
@@ -131,9 +156,9 @@ impl<const BUFFER_SIZE: usize> ReserveStation<BUFFER_SIZE> {
         source2: Source,
         dest_reg: u8,
     ) -> Option<u8> {
-        for i in 0..BUFFER_SIZE {
-            if !self.buffer[i].busy() {
-                self.buffer[i] = ReserveStationData::new(alu_op, source1, source2, dest_reg);
+        for (i, data) in self.buffer.iter_mut().enumerate() {
+            if !data.busy() {
+                *data = ReserveStationData::new(alu_op, source1, source2, dest_reg);
                 return Some(i as u8);
             }
         }
@@ -144,12 +169,11 @@ impl<const BUFFER_SIZE: usize> ReserveStation<BUFFER_SIZE> {
     fn exec_source(&mut self, cdb: &Cdb) -> Vec<(u8, u8, u32, u32, u8)> {
         let mut result = Vec::new();
 
-        for i in 0..BUFFER_SIZE {
-            if !self.buffer[i].busy() || self.buffer[i].executing() {
+        for (i, data) in self.buffer.iter_mut().enumerate() {
+            if !data.busy() || data.executing() {
                 continue;
             }
 
-            let mut data = self.buffer[i];
             let mut is_ready = true;
 
             if let Source::Station(station_id) = data.source1 {
@@ -180,6 +204,10 @@ impl<const BUFFER_SIZE: usize> ReserveStation<BUFFER_SIZE> {
 
         result
     }
+
+    fn done(&self) -> bool {
+        self.buffer.iter().all(|data| !data.busy())
+    }
 }
 
 #[derive(Debug, Default)]
@@ -194,7 +222,10 @@ impl Station for IntegerStation {
         dest_reg: u8,
     ) -> Option<u8> {
         assert!(!is_fp(dest_reg), "IntegerStation: dest_reg is not integer");
-        self.0.try_send(alu_op, source1, source2, dest_reg)
+
+        self.0
+            .try_send(alu_op, source1, source2, dest_reg)
+            .map(|id| id + 6)
     }
 
     fn execute(&mut self, cdb: &mut Cdb) {
@@ -203,6 +234,10 @@ impl Station for IntegerStation {
             cdb.send(id + 6, dest, result);
             self.0.buffer[id as usize].clear();
         }
+    }
+
+    fn done(&self) -> bool {
+        self.0.done()
     }
 }
 
@@ -230,15 +265,17 @@ impl Station for FaddStation {
             is_fp(dest_reg),
             "FaddStation: dest_reg is not floating point"
         );
-        self.reserve.try_send(alu_op, source1, source2, dest_reg)
+
+        self.reserve
+            .try_send(alu_op, source1, source2, dest_reg)
+            .map(|id| id + 9)
     }
 
     fn execute(&mut self, cdb: &mut Cdb) {
-        for i in 0..2 {
-            let data = &mut self.result[i];
+        for (i, data) in self.result.iter_mut().enumerate() {
             data.2 = data.2.saturating_sub(1);
 
-            if data.2 == 0 {
+            if data.2 == 1 {
                 cdb.send(i as u8 + 9, data.1, data.0);
                 self.reserve.buffer[i as usize].clear();
             }
@@ -246,8 +283,12 @@ impl Station for FaddStation {
 
         for (id, alu_op, source1, source2, dest) in self.reserve.exec_source(cdb) {
             let result = fadd(source1, source2, alu_op);
-            self.result[id as usize] = (result, dest, 2);
+            self.result[id as usize] = (result, dest, 3);
         }
+    }
+
+    fn done(&self) -> bool {
+        self.reserve.done() && self.result.iter().all(|data| data.2 == 0)
     }
 }
 
@@ -263,15 +304,17 @@ impl Station for FmulStation {
             is_fp(dest_reg),
             "FmulStation: dest_reg is not floating point"
         );
-        self.reserve.try_send(alu_op, source1, source2, dest_reg)
+
+        self.reserve
+            .try_send(alu_op, source1, source2, dest_reg)
+            .map(|id| id + 11)
     }
 
     fn execute(&mut self, cdb: &mut Cdb) {
-        for i in 0..2 {
-            let data = &mut self.result[i];
+        for (i, data) in self.result.iter_mut().enumerate() {
             data.2 = data.2.saturating_sub(1);
 
-            if data.2 == 0 {
+            if data.2 == 1 {
                 cdb.send(i as u8 + 11, data.1, data.0);
                 self.reserve.buffer[i as usize].clear();
             }
@@ -284,8 +327,12 @@ impl Station for FmulStation {
                 1 => 40,
                 _ => unreachable!(),
             };
-            self.result[id as usize] = (result, dest, remain);
+            self.result[id as usize] = (result, dest, remain + 1);
         }
+    }
+
+    fn done(&self) -> bool {
+        self.reserve.done() && self.result.iter().all(|data| data.2 == 0)
     }
 }
 
@@ -313,17 +360,21 @@ impl Station for LDStation {
         source2: Source,
         dest_reg: u8,
     ) -> Option<u8> {
-        assert!(matches!(source2, Source::Value(_)), "LDStation: source2 is not value");
+        assert!(
+            matches!(source2, Source::Value(_)),
+            "LDStation: source2 is not value"
+        );
 
-        self.reserve.try_send(mem_op, source1, source2, dest_reg)
+        self.reserve
+            .try_send(mem_op, source1, source2, dest_reg)
+            .map(|id| id + 1)
     }
 
     fn execute(&mut self, cdb: &mut Cdb) {
-        for i in 0..5 {
-            let data = &mut self.result[i];
+        for (i, data) in self.result.iter_mut().enumerate() {
             data.2 = data.2.saturating_sub(1);
 
-            if data.2 == 0 {
+            if data.2 == 1 {
                 cdb.send(i as u8 + 1, data.1, data.0);
                 self.reserve.buffer[i as usize].clear();
             }
@@ -335,15 +386,81 @@ impl Station for LDStation {
             match mem_op {
                 0 => {
                     let result = self.mem.load(addr);
-                    self.result[id as usize] = (result, dest, 1);
-                },
+                    self.result[id as usize] = (result, dest, 2);
+                }
                 1 => {
                     // complete store part
                     todo!()
-                },
-                _ => unreachable!()
+                }
+                _ => unreachable!(),
             }
         }
+    }
+
+    fn done(&self) -> bool {
+        self.reserve.done() && self.result.iter().all(|data| data.2 == 0)
+    }
+}
+
+impl Display for Source {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut buf = String::with_capacity(10);
+        match self {
+            Source::Value(v) => write!(buf, "{:08x}", v)?,
+            Source::Station(r) => write!(buf, "Stat {}", r)?,
+        };
+        write!(f, "{:<8}", buf)
+    }
+}
+
+impl Display for ReserveStationData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "tag: {:08b}, source1: {}, source2: {}, dest_reg: {}",
+            self.tag, self.source1, self.source2, self.dest_reg
+        )?;
+        Ok(())
+    }
+}
+
+impl Display for LDStation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "LDStation:")?;
+        for (i, data) in self.reserve.buffer.iter().enumerate() {
+            writeln!(f, "    {:>2}: {}", i + 1, data)?;
+        }
+        Ok(())
+    }
+}
+
+impl Display for IntegerStation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "IntegerStation:")?;
+        for (i, data) in self.0.buffer.iter().enumerate() {
+            writeln!(f, "    {:>2}: {}", i + 6, data)?;
+        }
+        Ok(())
+    }
+}
+
+impl Display for FaddStation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "FaddStation:")?;
+        for (i, data) in self.reserve.buffer.iter().enumerate() {
+            writeln!(f, "    {:>2}: {}", i + 9, data)?;
+        }
+        Ok(())
+    }
+}
+
+impl Display for FmulStation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "FmulStation:")?;
+        for (i, data) in self.reserve.buffer.iter().enumerate() {
+            writeln!(f, "    {:>2}: {}", i + 11, data)?;
+        }
+        Ok(())
     }
 }
 

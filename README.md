@@ -16,9 +16,11 @@ This is a 5-stage pipeline RISC-V simulator written in Rust.
 - [x] Assembler
 - [x] 5-stage pipeline
 - [x] data hazard and control hazard
-- [x] Visualization
+- [x] Visualization(debug)
 - [x] more instructions
 - [ ] F extension
+- [x] Out of order (tomasulo)
+- [ ] Branch Predictor
 
 ## Building
 

@@ -1,3 +1,5 @@
+use std::fmt::{self, Display};
+
 const CDB_BUFFER_SIZE: usize = 8;
 
 #[derive(Debug, Default)]
@@ -39,7 +41,7 @@ impl CdbData {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.tag & 0b01000000 == 0
+        self.tag & 0b10000000 == 0
     }
 
     pub fn clock(&mut self) {
@@ -47,10 +49,10 @@ impl CdbData {
             return;
         }
 
-        if self.tag & 0b00100000 == 0 {
-            self.tag |= 0b00100000;
+        if self.tag & 0b01000000 == 0 {
+            self.tag |= 0b01000000;
         } else {
-            self.tag &= 0b10111111;
+            self.tag = 0;
         }
     }
 }
@@ -79,6 +81,7 @@ impl Cdb {
     pub fn send(&mut self, station: u8, num: u8, data: u32) {
         for cdb_data in &mut self.buffer {
             if cdb_data.is_empty() {
+                dbg!("send to cdb");
                 *cdb_data = CdbData::new(station, num, data);
                 return;
             }
@@ -91,6 +94,33 @@ impl Cdb {
         for data in &mut self.buffer {
             data.clock();
         }
+    }
+}
+
+impl Display for CdbData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "station_id: {}, tag: {:08b}, data: {}",
+            self.station_id, self.tag, self.data
+        )
+    }
+}
+
+impl Display for Cdb {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut empty = true;
+        for data in &self.buffer {
+            if !data.is_empty() {
+                writeln!(f, "{}", data)?;
+                empty = false;
+            }
+        }
+        if empty {
+            writeln!(f, "empty")?;
+        }
+
+        Ok(())
     }
 }
 

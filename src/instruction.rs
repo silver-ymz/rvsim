@@ -123,15 +123,27 @@ impl Instruction {
     }
 
     pub fn rs1(&self) -> u32 {
-        self.rs1
+        let mut res = self.rs1;
+        if self.is_float_point() {
+            res += 32;
+        }
+        res
     }
 
     pub fn rs2(&self) -> u32 {
-        self.rs2
+        let mut res = self.rs2;
+        if self.is_float_point() {
+            res += 32;
+        }
+        res
     }
 
     pub fn rd(&self) -> u32 {
-        self.rd
+        let mut res = self.rd;
+        if self.is_float_point() {
+            res += 32;
+        }
+        res
     }
 
     pub fn imm(&self) -> u32 {
@@ -147,6 +159,14 @@ impl Instruction {
     }
 
     pub(crate) fn alu_op(&self) -> AluType {
+        if self.is_float_point() {
+            return match (self.binary >> 25) & 0x7f {
+                0 | 8 => 0.into(),
+                4 | 12 => 1.into(),
+                _ => unreachable!(),
+            };
+        }
+
         match self.inst_type {
             InstType::R => {
                 let mut code = (self.binary >> 12) & 0x7;
@@ -154,7 +174,9 @@ impl Instruction {
                 code |= ((self.binary >> 25) & 0x1) * 0b1000;
                 code.into()
             }
-            InstType::I if (self.binary & 0x7f) == 0x3 => AluType::Add,
+            InstType::I if (self.binary & 0x7f) == 0x3 || (self.binary & 0x7f) == 0x7 => {
+                AluType::Add
+            }
             InstType::I => {
                 let mut code = (self.binary >> 12) & 0x7;
                 if code == 0b101 {
@@ -208,7 +230,7 @@ impl Instruction {
     pub(crate) fn mem_op(&self) -> MemType {
         match self.inst_type {
             InstType::I => {
-                if (self.binary & 0x7f) == 0x3 {
+                if (self.binary & 0x7f) == 0x03 || (self.binary & 0x7f) == 0x07 {
                     MemType::Load
                 } else {
                     MemType::None
@@ -224,10 +246,6 @@ impl Instruction {
             self.inst_type,
             InstType::R | InstType::I | InstType::U | InstType::J
         ) && self.rd != 0
-    }
-
-    pub fn is_load(&self) -> bool {
-        self.binary & 0x7f == 0x03
     }
 
     pub fn is_nop(&self) -> bool {
@@ -252,6 +270,8 @@ impl Instruction {
             InstType::I => {
                 if (self.binary & 0x7f) == 0x03 || (self.binary & 0x7f) == 0x07 {
                     StationType::LoadStore
+                } else if (self.binary & 0x7f) == 0x73 {
+                    StationType::None
                 } else {
                     StationType::Integer
                 }
@@ -259,12 +279,12 @@ impl Instruction {
             InstType::S => StationType::LoadStore,
             InstType::R => {
                 if (self.binary & 0x7f) == 0x53 {
-                    if (self.binary >> 12) & 0x7 == 0 || (self.binary >> 12) & 0x7 == 4 {
+                    if (self.binary >> 25) & 0x7f == 0 || (self.binary >> 25) & 0x7f == 4 {
                         StationType::FAdd
-                    } else if (self.binary >> 12) & 0x7 == 8 || (self.binary >> 12) & 0x7 == 0xc {
+                    } else if (self.binary >> 25) & 0x7f == 8 || (self.binary >> 25) & 0x7f == 0xc {
                         StationType::FMul
                     } else {
-                        panic!("unknown float inst: {:x}", self.binary)
+                        panic!("unknown float inst: {:08x}", self.binary)
                     }
                 } else {
                     StationType::Integer
